@@ -1,39 +1,61 @@
--- Cancellation rate: canceled orders divided by all orders, by store.
+-- PostgreSQL reference queries. Use a fixed, closed reporting period.
+-- orders: one row per order. order_items: one row per requested product line.
+
+-- Cancellation rate for terminal orders by store and order month.
+WITH terminal_orders AS (
+    SELECT
+        order_id,
+        store_id,
+        date_trunc('month', created_at)::date AS order_month,
+        upper(trim(status)) AS normalized_status
+    FROM orders
+    WHERE upper(trim(status)) IN ('DELIVERED', 'CANCELED', 'CANCELLED')
+)
 SELECT
     store_id,
-    COUNT(*) AS order_count,
-    COUNT(*) FILTER (WHERE UPPER(status) = 'CANCELED') AS canceled_orders,
-    COUNT(*) FILTER (WHERE UPPER(status) = 'CANCELED')::numeric
-        / NULLIF(COUNT(*), 0) AS cancellation_rate
-FROM orders
-GROUP BY store_id
-ORDER BY cancellation_rate DESC NULLS LAST;
+    order_month,
+    COUNT(*) AS terminal_orders,
+    COUNT(*) FILTER (
+        WHERE normalized_status IN ('CANCELED', 'CANCELLED')
+    ) AS canceled_orders,
+    COUNT(*) FILTER (
+        WHERE normalized_status IN ('CANCELED', 'CANCELLED')
+    )::numeric / NULLIF(COUNT(*), 0) AS cancellation_rate
+FROM terminal_orders
+GROUP BY store_id, order_month
+ORDER BY order_month, cancellation_rate DESC NULLS LAST;
 
--- Unit fill rate: found units divided by requested units, by store.
--- LEAST caps found quantity at the amount requested for each line.
+-- Unit fill and line availability use delivered orders and positive requested quantities.
+-- Null found quantity is treated as zero. Overfills are capped in the fill-rate numerator
+-- and counted separately so data-quality issues remain visible.
+WITH delivered_lines AS (
+    SELECT
+        o.store_id,
+        date_trunc('month', o.created_at)::date AS order_month,
+        i.quantity_requested::numeric AS quantity_requested,
+        i.quantity_found::numeric AS quantity_found
+    FROM orders AS o
+    JOIN order_items AS i
+        ON i.order_id = o.order_id
+    WHERE upper(trim(o.status)) = 'DELIVERED'
+      AND i.quantity_requested > 0
+)
 SELECT
-    o.store_id,
-    SUM(LEAST(COALESCE(i.quantity_found, 0), i.quantity))::numeric
-        / NULLIF(SUM(i.quantity), 0) AS unit_fill_rate,
-    SUM(i.quantity) AS requested_units,
-    SUM(LEAST(COALESCE(i.quantity_found, 0), i.quantity)) AS found_units
-FROM orders AS o
-JOIN order_items AS i
-    ON i.order_id = o.order_id
-WHERE UPPER(o.status) = 'DELIVERED'
-GROUP BY o.store_id
-ORDER BY o.store_id;
-
--- Product-line availability: delivered order-item lines with any units found.
-SELECT
-    o.store_id,
-    COUNT(*) FILTER (WHERE COALESCE(i.quantity_found, 0) > 0)::numeric
-        / NULLIF(COUNT(*), 0) AS line_availability_rate,
+    store_id,
+    order_month,
+    SUM(LEAST(GREATEST(COALESCE(quantity_found, 0), 0), quantity_requested))
+        / NULLIF(SUM(quantity_requested), 0) AS unit_fill_rate,
+    COUNT(*) FILTER (
+        WHERE COALESCE(quantity_found, 0) > quantity_requested
+    ) AS overfilled_lines,
+    COUNT(*) FILTER (WHERE quantity_found IS NULL) AS missing_found_quantity_lines,
+    COUNT(*) FILTER (WHERE quantity_found < 0) AS negative_found_quantity_lines,
+    COUNT(*) FILTER (
+        WHERE COALESCE(quantity_found, 0) > 0
+    )::numeric / NULLIF(COUNT(*), 0) AS line_availability_rate,
     COUNT(*) AS requested_lines,
-    COUNT(*) FILTER (WHERE COALESCE(i.quantity_found, 0) > 0) AS lines_with_any_units
-FROM orders AS o
-JOIN order_items AS i
-    ON i.order_id = o.order_id
-WHERE UPPER(o.status) = 'DELIVERED'
-GROUP BY o.store_id
-ORDER BY o.store_id;
+    SUM(quantity_requested) AS requested_units,
+    SUM(LEAST(GREATEST(COALESCE(quantity_found, 0), 0), quantity_requested)) AS found_units
+FROM delivered_lines
+GROUP BY store_id, order_month
+ORDER BY order_month, store_id;

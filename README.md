@@ -1,9 +1,25 @@
 # Marketplace Operations Metrics
 
-A sanitized SQL reference for marketplace operations. It separates order cancellation, unit fill rate, and product-line availability so each metric has an explicit numerator and denominator.
+This PostgreSQL reference defines three operational measures at store and order-month level. It contains no case prompt, source dashboard, source catalog, or computed company findings.
+
+## Measures
+
+| Measure | Numerator | Denominator |
+|---|---|---|
+| Cancellation rate | Orders with a canceled terminal status | Delivered and canceled terminal orders |
+| Unit fill rate | Found units, capped at requested units per line | Requested units on delivered order lines |
+| Line availability rate | Delivered order lines with at least one unit found | Delivered order lines with positive requested quantity |
 
 ## Data contract
 
-`orders` has one row per order with `order_id`, `store_id`, and `status`. `order_items` has one row per order and requested product with `order_id`, `quantity`, and `quantity_found`. Adapt names and statuses to the source system.
+- `orders` has one row per order and includes `order_id`, `store_id`, `created_at`, and `status`.
+- `order_items` has one row per requested product line and includes `order_id`, `quantity_requested`, and `quantity_found`.
+- The cancellation query counts only delivered and canceled orders, so in-progress orders do not dilute the rate. Both `CANCELED` and `CANCELLED` spellings are accepted.
+- The fill-rate query treats a null or negative `quantity_found` as zero, caps overfills in the numerator, and reports missing, negative, and overfilled lines separately. Review these counts as data-quality signals.
+- The queries group by the order creation month. Add a fixed lower-inclusive and upper-exclusive date filter to compare complete, equivalent reporting periods.
 
-The sample uses PostgreSQL syntax. It contains no company names, source prompt, dashboard, or case data. A unit fill rate and a line availability rate answer different questions; choose the one the business definition requires.
+## Interpretation
+
+Unit fill weights each line by requested units. Line availability weights each line once. They answer different questions and can move in opposite directions. Compare stores only after checking reporting windows, order eligibility, item-line grain, and missing quantities.
+
+Adapt status values and field names to an authorized source system before use. No source data ships with this repository.
