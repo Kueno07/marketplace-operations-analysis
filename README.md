@@ -23,3 +23,18 @@ This PostgreSQL reference defines three operational measures at store and order-
 Unit fill weights each line by requested units. Line availability weights each line once. They answer different questions and can move in opposite directions. Compare stores only after checking reporting windows, order eligibility, item-line grain, and missing quantities.
 
 Adapt status values and field names to an authorized source system before use. No source data ships with this repository.
+
+## Entrega original (resumo sanitizado)
+
+A submissão da época reuniu apresentações e um dashboard de BI. Este repositório reconstrói métricas operacionais com dados sintéticos; não reproduz os materiais, dados ou conclusões do processo seletivo.
+
+## Exemplo sintético
+
+`examples/setup.sql` cria tabelas temporárias e dados de janeiro de 2026. Na mesma sessão PostgreSQL, execute o setup e as consultas de `analysis.sql`.
+
+| Loja fictícia | Cancelamento | Unit fill | Disponibilidade de linha |
+|---|---:|---:|---:|
+| Store A | 20% | 62,5% | 75% |
+| Store B | 40% | 60% | 66,7% |
+
+Os valores são sintéticos e não representam o case original. O exemplo inclui uma linha acima da quantidade solicitada e uma quantidade encontrada ausente para ilustrar os controles de qualidade.
